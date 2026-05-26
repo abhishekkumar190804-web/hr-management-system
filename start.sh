@@ -1,31 +1,41 @@
 #!/bin/bash
 
-set -e
+echo "Starting MariaDB..."
 
-echo "Starting MySQL..."
+service mariadb start
 
-service mysql start
+echo "Waiting for MariaDB..."
 
-echo "Waiting for MySQL..."
-
-until mysqladmin ping --silent; do
+until mysqladmin ping -h "localhost" --silent; do
+    echo "MariaDB not ready yet..."
     sleep 2
 done
 
-echo "Configuring Database..."
+echo "MariaDB ready."
 
-mysql -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY 'root'; FLUSH PRIVILEGES;"
+echo "Creating application user..."
 
-mysql -u root -proot -e "CREATE DATABASE IF NOT EXISTS hr_dev_db;"
+mysql <<EOF
+CREATE USER IF NOT EXISTS 'appuser'@'localhost' IDENTIFIED BY 'apppassword';
 
-if [ -f /app/hr_schema_data_db.sql ]; then
-    mysql -u root -proot hr_dev_db < /app/hr_schema_data_db.sql
-fi
+GRANT ALL PRIVILEGES ON *.* TO 'appuser'@'localhost';
+
+FLUSH PRIVILEGES;
+EOF
+
+echo "Importing schema..."
+
+mysql < hr_schema_data_db.sql
+
+echo "PORT=$PORT"
 
 echo "Starting Spring Boot..."
 
 exec java \
-    -Xms128m \
-    -Xmx512m \
-    -XX:+UseSerialGC \
-    -jar app.jar
+-Xms128m \
+-Xmx256m \
+-XX:+UseSerialGC \
+-Djava.security.egd=file:/dev/./urandom \
+-Dserver.port=${PORT:-10000} \
+-Dserver.address=0.0.0.0 \
+-jar app.jar
